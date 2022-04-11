@@ -12,12 +12,12 @@ import (
 	"github.com/grafana/mqtt-datasource/pkg/mqtt"
 )
 
-func ToFrame(topic string, messages []mqtt.Message) *data.Frame {
+func ToFrame(fields map[string]*data.Field, topic string, messages []mqtt.Message) *data.Frame {
 	count := len(messages)
 	if count > 0 {
 		first := messages[0].Value
 		if strings.HasPrefix(first, "{") {
-			return jsonMessagesToFrame(topic, messages)
+			return jsonMessagesToFrame(fields, topic, messages)
 		}
 	}
 
@@ -71,7 +71,7 @@ func checkmapstructure(x map[string]interface{}) map[string]interface{} {
 	return newmap
 }
 
-func jsonMessagesToFrame(topic string, messages []mqtt.Message) *data.Frame {
+func jsonMessagesToFrame(fields map[string]*data.Field, topic string, messages []mqtt.Message) *data.Frame {
 	count := len(messages)
 	if count == 0 {
 		return nil
@@ -88,11 +88,9 @@ func jsonMessagesToFrame(topic string, messages []mqtt.Message) *data.Frame {
 	body = checkmapstructure(body)*/
 	timeField := data.NewFieldFromFieldType(data.FieldTypeTime, count)
 	timeField.Name = "Time"
-	fields := make(map[string]*data.Field)
+	frame := data.NewFrame(topic, timeField)
 	// Create a field for each key and set the values of all rows
-	var i int
 	for row, m := range messages {
-		i++
 		timeField.SetConcrete(row, m.Timestamp)
 		var body map[string]interface{}
 		err := json.Unmarshal([]byte(m.Value), &body)
@@ -124,10 +122,9 @@ func jsonMessagesToFrame(topic string, messages []mqtt.Message) *data.Frame {
 		}
 
 		//sort.Strings(keys)
+		backend.Logger.Info(fmt.Sprintf("number of iterations: %v", row))
 
 	}
-	backend.Logger.Info(fmt.Sprintf("number of iterations: %v", i))
-	frame := data.NewFrame(topic, timeField)
 	for _, val := range fields {
 		frame.Fields = append(frame.Fields, val)
 	}

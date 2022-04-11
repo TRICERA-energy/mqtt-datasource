@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/mqtt-datasource/pkg/mqtt"
 	"github.com/grafana/mqtt-datasource/pkg/plugin"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSimpleValueMessage(t *testing.T) {
-	frame := plugin.ToFrame("test/data", []mqtt.Message{
+	frame := plugin.ToFrame(make(map[string]*data.Field), "test/data", []mqtt.Message{
 		{
 			Timestamp: time.Unix(1, 0),
 			Value:     "1",
@@ -34,7 +35,7 @@ func TestJSONValuesMessage(t *testing.T) {
 	}
 	msg := fmt.Sprintf(`{"ax": %v, "ay": %v, "az": %v, "gx": %v, "gy": %v, "gz": %v}`,
 		values[0], values[1], values[2], values[3], values[4], values[5])
-	frame := plugin.ToFrame("test/data", []mqtt.Message{
+	frame := plugin.ToFrame(make(map[string]*data.Field), "test/data", []mqtt.Message{
 		{
 			Timestamp: timestamp,
 			Value:     msg,
