@@ -7,9 +7,35 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/mqtt-datasource/pkg/mqtt"
 )
+
+func ToFrame(topic string, messages []mqtt.Message) *data.Frame {
+	count := len(messages)
+	if count > 0 {
+		first := messages[0].Value
+		if strings.HasPrefix(first, "{") {
+			return jsonMessagesToFrame(topic, messages)
+		}
+	}
+
+	// Fall through to expecting values
+	timeField := data.NewFieldFromFieldType(data.FieldTypeTime, count)
+	timeField.Name = "Time"
+	valueField := data.NewFieldFromFieldType(data.FieldTypeFloat64, count)
+	valueField.Name = "Value"
+
+	for idx, m := range messages {
+		if value, err := strconv.ParseFloat(m.Value, 64); err == nil {
+			timeField.Set(idx, m.Timestamp)
+			valueField.Set(idx, value)
+		}
+	}
+
+	return data.NewFrame(topic, timeField, valueField)
+}
 
 //append's two maps
 func appendmaps(x map[string]interface{}, y map[string]interface{}, key string) map[string]interface{} {
@@ -45,39 +71,13 @@ func checkmapstructure(x map[string]interface{}) map[string]interface{} {
 	return newmap
 }
 
-func ToFrame(topic string, messages []mqtt.Message) *data.Frame {
-	count := len(messages)
-	if count > 0 {
-		first := messages[0].Value
-		if strings.HasPrefix(first, "{") {
-			return jsonMessagesToFrame(topic, messages)
-		}
-	}
-
-	// Fall through to expecting values
-	timeField := data.NewFieldFromFieldType(data.FieldTypeTime, count)
-	timeField.Name = "Time"
-	valueField := data.NewFieldFromFieldType(data.FieldTypeFloat64, count)
-	valueField.Name = "Value"
-
-	for idx, m := range messages {
-		if value, err := strconv.ParseFloat(m.Value, 64); err == nil {
-			timeField.Set(idx, m.Timestamp)
-			valueField.Set(idx, value)
-		}
-	}
-
-	return data.NewFrame(topic, timeField, valueField)
-}
-
 func jsonMessagesToFrame(topic string, messages []mqtt.Message) *data.Frame {
 	count := len(messages)
 	if count == 0 {
 		return nil
 	}
 
-	var body map[string]interface{}
-	err := json.Unmarshal([]byte(messages[0].Value), &body)
+	/*err := json.Unmarshal([]byte(messages[0].Value), &body)
 	if err != nil {
 		frame := data.NewFrame(topic)
 		frame.AppendNotices(data.Notice{Severity: data.NoticeSeverityError,
@@ -85,60 +85,55 @@ func jsonMessagesToFrame(topic string, messages []mqtt.Message) *data.Frame {
 		})
 		return frame
 	}
-	body = checkmapstructure(body)
+	body = checkmapstructure(body)*/
 	timeField := data.NewFieldFromFieldType(data.FieldTypeTime, count)
 	timeField.Name = "Time"
-	timeField.SetConcrete(0, messages[0].Timestamp)
-
-	// Create a field for each key and set the first value
-	keys := make([]string, 0, len(body))
-	fields := make(map[string]*data.Field, len(body))
-	for key, val := range body {
-		switch val.(type) {
-		case float64:
-			field := data.NewFieldFromFieldType(data.FieldTypeNullableFloat64, count)
-			field.Name = key
-			field.SetConcrete(0, val)
-			fields[key] = field
-		case string:
-			field := data.NewFieldFromFieldType(data.FieldTypeNullableString, count)
-			field.Name = key
-			field.SetConcrete(0, val)
-			fields[key] = field
-
-		default:
-			field := data.NewFieldFromFieldType(data.FieldTypeUnknown, count)
-			field.Name = key
-			field.SetConcrete(0, val)
-			fields[key] = field
-		}
-
-		keys = append(keys, key)
-	}
-	sort.Strings(keys) // keys stable field order.
-
-	// Add rows 1...n
+	fields := make(map[string]*data.Field)
+	// Create a field for each key and set the values of all rows
+	var i int
 	for row, m := range messages {
-		if row == 0 {
-			continue
-		}
-
+		i++
+		timeField.SetConcrete(row, m.Timestamp)
+		var body map[string]interface{}
 		err := json.Unmarshal([]byte(m.Value), &body)
-		body = checkmapstructure(body)
+		//keys := make([]string, 0, len(checkmapstructure(body)))
+
 		if err != nil {
 			continue // bad row?
 		}
+		for key, val := range checkmapstructure(body) {
+			field, exists := fields[key]
+			if !exists {
+				var t data.FieldType
+				switch val.(type) {
+				case float64:
+					t = data.FieldTypeNullableFloat64
+				case string:
+					t = data.FieldTypeNullableString
+				default:
+					t = data.FieldTypeUnknown
+				}
+				field = data.NewFieldFromFieldType(t, count)
+				field.Name = key
+				fields[key] = field
+				//keys = append(keys, key)
+			}
 
-		timeField.SetConcrete(row, m.Timestamp)
-		for key, val := range body {
-			field := fields[key]
 			field.SetConcrete(row, val)
-		}
-	}
 
-	frame := data.NewFrame(topic, timeField)
-	for _, key := range keys {
-		frame.Fields = append(frame.Fields, fields[key])
+		}
+
+		//sort.Strings(keys)
+
 	}
+	backend.Logger.Info(fmt.Sprintf("number of iterations: %v", i))
+	frame := data.NewFrame(topic, timeField)
+	for _, val := range fields {
+		frame.Fields = append(frame.Fields, val)
+	}
+	sort.Slice(frame.Fields, func(i, j int) bool {
+		return frame.Fields[i].Name < frame.Fields[j].Name
+	})
 	return frame
+
 }
