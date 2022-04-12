@@ -126,6 +126,7 @@ func (ds *MQTTDatasource) RunStream(ctx context.Context, req *backend.RunStreamR
 			if message.Topic != req.Path {
 				continue
 			}
+			backend.Logger.Info(fmt.Sprintf("fields: %s", &fields))
 			err := ds.SendMessage(fields, message, req, sender)
 			if err != nil {
 				log.DefaultLogger.Error(fmt.Sprintf("unable to send message: %s", err.Error()))
@@ -159,6 +160,7 @@ func (ds *MQTTDatasource) Query(query backend.DataQuery) backend.DataResponse {
 
 	messages, ok := ds.Client.Messages(qm.Topic)
 	if !ok {
+		backend.Logger.Info(fmt.Sprintf("FIRST ERROR"))
 		return response
 	}
 

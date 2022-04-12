@@ -75,7 +75,6 @@ func jsonMessagesToFrame(fields map[string]*data.Field, topic string, messages [
 
 	timeField := data.NewFieldFromFieldType(data.FieldTypeTime, count)
 	timeField.Name = "Time"
-	frame := data.NewFrame(topic, timeField)
 
 	// Create a field for each key and for each row set the values
 	for row, m := range messages {
@@ -84,7 +83,7 @@ func jsonMessagesToFrame(fields map[string]*data.Field, topic string, messages [
 		err := json.Unmarshal([]byte(m.Value), &body)
 
 		if err != nil {
-			continue // bad row?
+			return nil // bad row?
 		}
 		for key, val := range checkmapstructure(body) {
 			field, exists := fields[key]
@@ -95,21 +94,65 @@ func jsonMessagesToFrame(fields map[string]*data.Field, topic string, messages [
 					t = data.FieldTypeNullableFloat64
 				case string:
 					t = data.FieldTypeNullableString
-				default:
+				case bool:
+					t = data.FieldTypeNullableBool
+				default: //null
 					t = data.FieldTypeUnknown
 				}
 				field = data.NewFieldFromFieldType(t, count)
 				field.Name = key
+				field.SetConcrete(row, val)
 				fields[key] = field
-			}
+			} else {
+				switch val.(type) {
+				case float64:
+					if exists && field.Type() == data.FieldTypeNullableFloat64 {
+						field.SetConcrete(row, val)
+					} else {
+						field = data.NewFieldFromFieldType(data.FieldTypeNullableFloat64, count)
+						field.Name = key
+						field.SetConcrete(row, val)
+						fields[key] = field
+					}
+				case string:
+					if field.Type() == data.FieldTypeNullableString {
+						field.SetConcrete(row, val)
+					} else {
+						field = data.NewFieldFromFieldType(data.FieldTypeNullableString, count)
+						field.Name = key
+						field.SetConcrete(row, val)
+						fields[key] = field
+					}
+				case bool:
+					if field.Type() == data.FieldTypeNullableBool {
+						field.SetConcrete(row, val)
+					} else {
+						field = data.NewFieldFromFieldType(data.FieldTypeNullableBool, count)
+						field.Name = key
+						field.SetConcrete(row, val)
+						fields[key] = field
+					}
 
-			field.SetConcrete(row, val)
+				default: //nil fall
+					if field.Type() == data.FieldTypeUnknown {
+						field.SetConcrete(row, val)
+					} else {
+						field = data.NewFieldFromFieldType(data.FieldTypeUnknown, count)
+						field.Name = key
+						field.SetConcrete(row, val)
+						fields[key] = field
+
+					}
+				}
+			}
 
 		}
 
 	}
-	for _, val := range fields {
-		frame.Fields = append(frame.Fields, val)
+	frame := data.NewFrame(topic, timeField)
+
+	for _, f := range fields {
+		frame.Fields = append(frame.Fields, f)
 	}
 
 	sort.Slice(frame.Fields, func(i, j int) bool {
