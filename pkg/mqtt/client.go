@@ -41,8 +41,6 @@ func NewClient(o Options) (*Client, error) {
 		opts.SetPassword(o.Password)
 	}
 
-	log.DefaultLogger.Info("Hello world!")
-
 	opts.SetPingTimeout(60 * time.Second)
 	opts.SetKeepAlive(60 * time.Second)
 	opts.SetAutoReconnect(true)

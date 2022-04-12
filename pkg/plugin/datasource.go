@@ -123,7 +123,6 @@ func (ds *MQTTDatasource) RunStream(ctx context.Context, req *backend.RunStreamR
 			backend.Logger.Info("stop streaming (context canceled)")
 			return nil
 		case message := <-ds.Client.Stream():
-			backend.Logger.Info(fmt.Sprintf("received new messsage: %v", message))
 			if message.Topic != req.Path {
 				continue
 			}
