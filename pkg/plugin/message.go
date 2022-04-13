@@ -86,64 +86,45 @@ func jsonMessagesToFrame(fields map[string]*data.Field, topic string, messages [
 			return nil // bad row?
 		}
 		for key, val := range checkmapstructure(body) {
+
 			field, exists := fields[key]
-			if !exists {
-				var t data.FieldType
-				switch val.(type) {
-				case float64:
-					t = data.FieldTypeNullableFloat64
-				case string:
-					t = data.FieldTypeNullableString
-				case bool:
-					t = data.FieldTypeNullableBool
-				default: //null
-					t = data.FieldTypeUnknown
-				}
-				field = data.NewFieldFromFieldType(t, count)
-				field.Name = key
-				field.SetConcrete(row, val)
-				fields[key] = field
-			} else {
-				switch val.(type) {
-				case float64:
-					if exists && field.Type() == data.FieldTypeNullableFloat64 {
-						field.SetConcrete(row, val)
-					} else {
-						field = data.NewFieldFromFieldType(data.FieldTypeNullableFloat64, count)
-						field.Name = key
-						field.SetConcrete(row, val)
-						fields[key] = field
-					}
-				case string:
-					if field.Type() == data.FieldTypeNullableString {
-						field.SetConcrete(row, val)
-					} else {
-						field = data.NewFieldFromFieldType(data.FieldTypeNullableString, count)
-						field.Name = key
-						field.SetConcrete(row, val)
-						fields[key] = field
-					}
-				case bool:
-					if field.Type() == data.FieldTypeNullableBool {
-						field.SetConcrete(row, val)
-					} else {
-						field = data.NewFieldFromFieldType(data.FieldTypeNullableBool, count)
-						field.Name = key
-						field.SetConcrete(row, val)
-						fields[key] = field
-					}
 
-				default: //nil fall
-					if field.Type() == data.FieldTypeUnknown {
-						field.SetConcrete(row, val)
-					} else {
-						field = data.NewFieldFromFieldType(data.FieldTypeUnknown, count)
-						field.Name = key
-						field.SetConcrete(row, val)
-						fields[key] = field
+			switch val.(type) {
+			case float64:
 
-					}
+				if exists && field.Type() == data.FieldTypeNullableFloat64 {
+					field.SetConcrete(row, val)
+				} else {
+					field = data.NewFieldFromFieldType(data.FieldTypeNullableFloat64, count)
+					field.Name = key
+					field.SetConcrete(row, val)
+					fields[key] = field
 				}
+
+			case string:
+
+				if exists && field.Type() == data.FieldTypeNullableString {
+					field.SetConcrete(row, val)
+				} else {
+					field = data.NewFieldFromFieldType(data.FieldTypeNullableString, count)
+					field.Name = key
+					field.SetConcrete(row, val)
+					fields[key] = field
+				}
+
+			case bool:
+
+				if exists && field.Type() == data.FieldTypeNullableBool {
+					field.SetConcrete(row, val)
+				} else {
+					field = data.NewFieldFromFieldType(data.FieldTypeNullableBool, count)
+					field.Name = key
+					field.SetConcrete(row, val)
+					fields[key] = field
+				}
+			default:
+				delete(fields, key)
+
 			}
 
 		}
