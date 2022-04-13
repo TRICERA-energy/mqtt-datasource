@@ -35,34 +35,33 @@ func ToFrame(fields map[string]*data.Field, topic string, messages []mqtt.Messag
 	return data.NewFrame(topic, timeField, valueField)
 }
 
-//append two maps
-func appendmaps(firstmap map[string]interface{}, secondmap map[string]interface{}, secondmapkey string) map[string]interface{} {
-	for k, v := range firstmap {
-		secondmap[secondmapkey+k] = v
+//get a nested map and return's a key-value map
+func unnestMap(v interface{}, newmap map[string]interface{}, key string) map[string]interface{} {
+	switch v := v.(type) {
+	case map[string]interface{}: //Object
+		for k, val := range v {
+			unnestMap(val, newmap, key+"."+k)
+
+		}
+	case []interface{}: //Array
+		for newkey := 0; newkey < len(v); newkey++ {
+			newmap[key+"["+strconv.Itoa(newkey)+"]"] = v[newkey]
+
+		}
+
+	default: // Number (float64), String (string), Boolean (bool), Null (nil)
+		newmap[key] = v
+
 	}
-	return secondmap
+	return newmap
+
 }
 
 //change map structure from nested to normal key value map
-func checkmapstructure(x map[string]interface{}) map[string]interface{} {
+func changeMapStructure(nestedMap map[string]interface{}) map[string]interface{} {
 	newmap := make(map[string]interface{})
-
-	for k, v := range x {
-		switch v := v.(type) {
-		case map[string]interface{}: //Object
-			var b strings.Builder
-			b.WriteString(k + ".")
-			appendmaps(checkmapstructure(v), newmap, b.String())
-		case []interface{}: //Array
-			for newkey := 0; newkey < len(v); newkey++ {
-				var b strings.Builder
-				b.WriteString(k + "[" + strconv.Itoa(newkey) + "]")
-				newmap[b.String()] = v[newkey]
-			}
-		default: // Number (float64), String (string), Boolean (bool), Null (nil)
-			newmap[k] = v
-		}
-
+	for k, v := range nestedMap {
+		newmap = unnestMap(v, newmap, k)
 	}
 	return newmap
 }
@@ -85,10 +84,9 @@ func jsonMessagesToFrame(fields map[string]*data.Field, topic string, messages [
 		if err != nil {
 			return nil // bad row?
 		}
-		for key, val := range checkmapstructure(body) {
+		for key, val := range changeMapStructure(body) {
 
 			field, exists := fields[key]
-
 			switch val.(type) {
 			case float64:
 
