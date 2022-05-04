@@ -118,16 +118,17 @@ func (p *plugin) PublishStream(_ context.Context, _ *backend.PublishStreamReques
 
 func (p *plugin) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
 	if t := p.mqtt.Subscribe(req.Path, 0, func(_ paho.Client, msg paho.Message) {
-		log.DefaultLogger.Info(fmt.Sprintf("Received message: %s", msg.Payload()))
-		/*message := struct {
-			Time  time.Time       `json:"time"`
-			Value json.RawMessage `json:"value"`
-		}{time.Now(), msg.Payload()}
-		raw, err := json.Marshal(message)
-		log.DefaultLogger.Info(fmt.Sprintf("Sending: %s", raw))
-		if err != nil {
-			log.DefaultLogger.Error(fmt.Sprintf("unable to send message: %v", err))
-		} else */if err := sender.SendJSON(msg.Payload()); err != nil {
+		f1 := data.NewFieldFromFieldType(data.FieldTypeTime, 1)
+		f1.Name = "time"
+		f1.SetConcrete(0, time.Now())
+		f2 := data.NewFieldFromFieldType(data.FieldTypeString, 1)
+		f2.Name = "value"
+		f2.SetConcrete(0, string(msg.Payload()))
+		if err := sender.SendFrame(data.NewFrame(
+			req.Path,
+			f1, f2,
+		).SetMeta(&data.FrameMeta{Channel: p.channelPrefix + req.Path}),
+			data.IncludeAll); err != nil {
 			log.DefaultLogger.Error(fmt.Sprintf("unable to send message: %v", err))
 		}
 	}); t.Wait() && t.Error() != nil {
@@ -147,13 +148,11 @@ func (p *plugin) QueryData(_ context.Context, req *backend.QueryDataRequest) (*b
 		var model struct {
 			Topic string `json:"queryText"`
 		}
-		res := backend.DataResponse{}
-		res.Error = json.Unmarshal(query.JSON, &model)
-		res.Frames = append(res.Frames, data.NewFrame(model.Topic).SetMeta(&data.FrameMeta{
-			Channel: p.channelPrefix + model.Topic,
-		}))
-		response.Responses[query.RefID] = res
-		log.DefaultLogger.Error(fmt.Sprintf("Model: %v", p.channelPrefix+model.Topic))
+		response.Responses[query.RefID] = backend.DataResponse{
+			Error: json.Unmarshal(query.JSON, &model),
+			Frames: data.Frames{data.NewFrame(model.Topic).SetMeta(&data.FrameMeta{
+				Channel: p.channelPrefix + model.Topic,
+			})}}
 	}
 	return response, nil
 }
