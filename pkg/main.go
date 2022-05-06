@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sync"
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
@@ -30,60 +31,48 @@ func create(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error)
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-
 	if err := json.Unmarshal(s.JSONData, &settings); err != nil {
 		return nil, err
 	}
-
 	if password, exists := s.DecryptedSecureJSONData["password"]; exists {
 		settings.Password = password
 	}
 
-	opts := paho.NewClientOptions()
-
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", settings.Host, settings.Port))
-	opts.SetClientID(fmt.Sprintf("grafana_%d", rand.Int()))
-
-	if settings.Username != "" {
-		opts.SetUsername(settings.Username)
-	}
-
-	if settings.Password != "" {
-		opts.SetPassword(settings.Password)
-	}
-
-	opts.SetPingTimeout(60 * time.Second)
-	opts.SetKeepAlive(60 * time.Second)
-	opts.SetAutoReconnect(true)
-	opts.SetMaxReconnectInterval(10 * time.Second)
-	opts.SetConnectionLostHandler(func(_ paho.Client, err error) {
-		log.DefaultLogger.Error(fmt.Sprintf("MQTT Connection Lost: %s", err.Error()))
-	})
-	opts.SetReconnectingHandler(func(_ paho.Client, _ *paho.ClientOptions) {
-		log.DefaultLogger.Debug("MQTT Reconnecting")
-	})
+	client := paho.NewClient(paho.NewClientOptions().
+		AddBroker(fmt.Sprintf("tcp://%s:%d", settings.Host, settings.Port)).
+		SetClientID(fmt.Sprintf("grafana_%d", rand.Int())).
+		SetUsername(settings.Username).
+		SetPassword(settings.Password).
+		SetPingTimeout(60 * time.Second).
+		SetKeepAlive(60 * time.Second).
+		SetAutoReconnect(true).
+		SetMaxReconnectInterval(10 * time.Second).
+		SetConnectionLostHandler(func(_ paho.Client, err error) {
+			log.DefaultLogger.Error(fmt.Sprintf("MQTT Connection Lost: %v", err))
+		}).
+		SetReconnectingHandler(func(_ paho.Client, _ *paho.ClientOptions) {
+			log.DefaultLogger.Debug("MQTT Reconnecting")
+		}),
+	)
 
 	log.DefaultLogger.Info("MQTT Connecting")
 
-	client := paho.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		return nil, fmt.Errorf("error connecting to MQTT broker: %s", token.Error())
+		return nil, fmt.Errorf("error connecting to MQTT broker: %v", token.Error())
 	}
 
-	return &plugin{
-		mqtt:          client,
-		channelPrefix: fmt.Sprintf("ds/%s/", s.UID),
-	}, nil
+	return &plugin{mqtt: client, channelPrefix: fmt.Sprintf("ds/%s/", s.UID)}, nil
 }
 
 type plugin struct {
 	channelPrefix string
 	mqtt          paho.Client
+	// cache stores the last data frame transmitted to a channel.
+	// This way allows other clients connecting to the
+	// streaming channel to receive the last value instead of no data.
+	cache sync.Map
 }
 
-// Make sure MQTTDatasource implements required interfaces.
-// This is important to do since otherwise we will only get a
-// not implemented error response from plugin in runtime.
 var (
 	_ backend.QueryDataHandler      = (*plugin)(nil)
 	_ backend.CheckHealthHandler    = (*plugin)(nil)
@@ -118,17 +107,12 @@ func (p *plugin) PublishStream(_ context.Context, _ *backend.PublishStreamReques
 
 func (p *plugin) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
 	if t := p.mqtt.Subscribe(req.Path, 0, func(_ paho.Client, msg paho.Message) {
-		f1 := data.NewFieldFromFieldType(data.FieldTypeTime, 1)
-		f1.Name = "time"
-		f1.SetConcrete(0, time.Now())
-		f2 := data.NewFieldFromFieldType(data.FieldTypeString, 1)
-		f2.Name = "value"
-		f2.SetConcrete(0, string(msg.Payload()))
-		if err := sender.SendFrame(data.NewFrame(
-			req.Path,
-			f1, f2,
-		).SetMeta(&data.FrameMeta{Channel: p.channelPrefix + req.Path}),
-			data.IncludeAll); err != nil {
+		f := data.NewFrame(req.Path,
+			data.NewField("time", nil, []time.Time{time.Now()}),
+			data.NewField("value", nil, []string{string(msg.Payload())}),
+		).SetMeta(&data.FrameMeta{Channel: p.channelPrefix + req.Path})
+		p.cache.Store(req.Path, f)
+		if err := sender.SendFrame(f, data.IncludeAll); err != nil {
 			log.DefaultLogger.Error(fmt.Sprintf("unable to send message: %v", err))
 		}
 	}); t.Wait() && t.Error() != nil {
@@ -138,21 +122,21 @@ func (p *plugin) RunStream(ctx context.Context, req *backend.RunStreamRequest, s
 	backend.Logger.Info("stop streaming (context canceled)")
 	t := p.mqtt.Unsubscribe(req.Path)
 	t.Wait()
+	p.cache.Delete(req.Path)
 	return t.Error()
 }
 
 func (p *plugin) QueryData(_ context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	response := backend.NewQueryDataResponse()
-
 	for _, query := range req.Queries {
 		var model struct {
 			Topic string `json:"queryText"`
 		}
-		response.Responses[query.RefID] = backend.DataResponse{
-			Error: json.Unmarshal(query.JSON, &model),
-			Frames: data.Frames{data.NewFrame(model.Topic).SetMeta(&data.FrameMeta{
-				Channel: p.channelPrefix + model.Topic,
-			})}}
+		res := backend.DataResponse{Error: json.Unmarshal(query.JSON, &model)}
+		if f, exists := p.cache.Load(model.Topic); exists {
+			res.Frames = data.Frames{f.(*data.Frame)}
+		}
+		response.Responses[query.RefID] = res
 	}
 	return response, nil
 }
