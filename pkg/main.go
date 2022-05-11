@@ -106,11 +106,12 @@ func (p *plugin) PublishStream(_ context.Context, _ *backend.PublishStreamReques
 }
 
 func (p *plugin) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
+	log.DefaultLogger.Info(fmt.Sprintf("subscribing to topic %v", req.Path))
 	if t := p.mqtt.Subscribe(req.Path, 0, func(_ paho.Client, msg paho.Message) {
-		f := data.NewFrame(req.Path,
+		log.DefaultLogger.Info(fmt.Sprintf("received message %s", msg.Payload()))
+		f := p.frame(req.Path,
 			data.NewField("time", nil, []time.Time{time.Now()}),
-			data.NewField("value", nil, []string{string(msg.Payload())}),
-		).SetMeta(&data.FrameMeta{Channel: p.channelPrefix + req.Path})
+			data.NewField("value", nil, []string{string(msg.Payload())}))
 		p.cache.Store(req.Path, f)
 		if err := sender.SendFrame(f, data.IncludeAll); err != nil {
 			log.DefaultLogger.Error(fmt.Sprintf("unable to send message: %v", err))
@@ -119,7 +120,7 @@ func (p *plugin) RunStream(ctx context.Context, req *backend.RunStreamRequest, s
 		return t.Error()
 	}
 	<-ctx.Done()
-	backend.Logger.Info("stop streaming (context canceled)")
+	backend.Logger.Info(fmt.Sprintf("stop streaming (context canceled) topic: %v", req.Path))
 	t := p.mqtt.Unsubscribe(req.Path)
 	t.Wait()
 	p.cache.Delete(req.Path)
@@ -132,11 +133,10 @@ func (p *plugin) QueryData(_ context.Context, req *backend.QueryDataRequest) (*b
 		var model struct {
 			Topic string `json:"queryText"`
 		}
-		res := backend.DataResponse{Error: json.Unmarshal(query.JSON, &model)}
-		if f, exists := p.cache.Load(model.Topic); exists {
-			res.Frames = data.Frames{f.(*data.Frame)}
+		response.Responses[query.RefID] = backend.DataResponse{
+			Error:  json.Unmarshal(query.JSON, &model),
+			Frames: data.Frames{p.frame(model.Topic)},
 		}
-		response.Responses[query.RefID] = res
 	}
 	return response, nil
 }
@@ -144,4 +144,13 @@ func (p *plugin) QueryData(_ context.Context, req *backend.QueryDataRequest) (*b
 func (p *plugin) Dispose() {
 	log.DefaultLogger.Info("MQTT Disconnecting")
 	p.mqtt.Disconnect(250)
+}
+
+func (p *plugin) frame(topic string, fields ...*data.Field) *data.Frame {
+	if len(fields) == 0 {
+		if f, ok := p.cache.Load(topic); ok {
+			return f.(*data.Frame)
+		}
+	}
+	return data.NewFrame(topic, fields...).SetMeta(&data.FrameMeta{Channel: p.channelPrefix + topic})
 }
