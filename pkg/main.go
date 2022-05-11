@@ -106,9 +106,8 @@ func (p *plugin) PublishStream(_ context.Context, _ *backend.PublishStreamReques
 }
 
 func (p *plugin) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
-	log.DefaultLogger.Info(fmt.Sprintf("subscribing to topic %v", req.Path))
+	log.DefaultLogger.Info(fmt.Sprintf("subscribing to topic: %v", req.Path))
 	if t := p.mqtt.Subscribe(req.Path, 0, func(_ paho.Client, msg paho.Message) {
-		log.DefaultLogger.Info(fmt.Sprintf("received message %s", msg.Payload()))
 		f := p.frame(req.Path,
 			data.NewField("time", nil, []time.Time{time.Now()}),
 			data.NewField("value", nil, []string{string(msg.Payload())}))
