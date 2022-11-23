@@ -44,12 +44,17 @@ func Test_framer(t *testing.T) {
 	t.Run("null", func(t *testing.T) {
 		runTest(t, "null", nil)
 	})
+
+	t.Run("timeformat", func(t *testing.T) {
+		time, _ := time.Parse(time.RFC3339, "2022-11-08T09:05:50.989644528Z")
+		runTest(t, "timeformat", map[string]interface{}{"timestamp": time})
+	})
 }
 
 func runTest(t *testing.T, name string, v any) {
 	t.Helper()
 	f := newFramer()
-	frame, err := f.toFrame([]Message{{Timestamp: time.Unix(100, 0), Value: toJSON(v)}})
+	frame, err := f.toFrame([]Message{{Timestamp: time.Unix(100, 0), Value: toJSON(v)}}, []GJSONPath{})
 	require.NoError(t, err)
 	require.NotNil(t, frame)
 	experimental.CheckGoldenJSONFrame(t, "testdata", name, frame, update)

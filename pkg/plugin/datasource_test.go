@@ -62,3 +62,5 @@ func (c *fakeMQTTClient) IsSubscribed(_ string) bool {
 func (c *fakeMQTTClient) Subscribe(_ string) *mqtt.Topic { return nil }
 func (c *fakeMQTTClient) Unsubscribe(_ string)           {}
 func (c *fakeMQTTClient) Dispose()                       {}
+
+func (c *fakeMQTTClient) AddGJSONPaths(_ string, _ []mqtt.GJSONPath) {}
