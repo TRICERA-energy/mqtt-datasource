@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/tidwall/gjson"
 )
 
 type framer struct {
@@ -21,7 +23,12 @@ func (df *framer) next() error {
 	switch df.iterator.WhatIsNext() {
 	case jsoniter.StringValue:
 		v := df.iterator.ReadString()
-		df.addValue(data.FieldTypeNullableString, &v)
+		time, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			df.addValue(data.FieldTypeNullableString, &v)
+		} else {
+			df.addValue(data.FieldTypeNullableTime, &time)
+		}
 	case jsoniter.NumberValue:
 		v := df.iterator.ReadFloat64()
 		df.addValue(data.FieldTypeNullableFloat64, &v)
@@ -90,7 +97,7 @@ func newFramer() *framer {
 	return df
 }
 
-func (df *framer) toFrame(messages []Message) (*data.Frame, error) {
+func (df *framer) toFrame(messages []Message, paths []GJSONPath) (*data.Frame, error) {
 	// clear the data in the fields
 	for _, field := range df.fields {
 		for i := 0; i < field.Len(); i++ {
@@ -99,8 +106,33 @@ func (df *framer) toFrame(messages []Message) (*data.Frame, error) {
 	}
 
 	for _, message := range messages {
-		df.iterator = jsoniter.ParseBytes(jsoniter.ConfigDefault, message.Value)
+		value := message.Value
+
+		if len(paths) > 0 {
+			gjson.AddModifier("alias", func(json, arg string) string {
+				return json
+			})
+
+			filters := []string{}
+			for _, path := range paths {
+				if len(path.Alias) > 0 {
+					newFilter := fmt.Sprintf(`%s|@alias:%s`, path.Path, path.Alias)
+					filters = append(filters, newFilter)
+				} else {
+					filters = append(filters, path.Path)
+				}
+			}
+
+			combinedFilters := fmt.Sprintf(`{%s}`, strings.Join(filters, ","))
+
+			raw := gjson.GetBytes(value, combinedFilters).Raw
+			raw = strings.ReplaceAll(raw, "@alias:", "")
+			value = []byte(raw)
+		}
+
+		df.iterator = jsoniter.ParseBytes(jsoniter.ConfigDefault, value)
 		err := df.next()
+
 		if err != nil {
 			return nil, err
 		}

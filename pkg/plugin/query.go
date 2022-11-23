@@ -46,5 +46,8 @@ func (ds *MQTTDatasource) query(query backend.DataQuery) backend.DataResponse {
 	})
 
 	response.Frames = append(response.Frames, frame)
+
+	ds.Client.AddGJSONPaths(t.Key(), t.GJSONPaths)
+
 	return response
 }

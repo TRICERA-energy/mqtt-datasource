@@ -13,11 +13,17 @@ type Message struct {
 	Value     []byte
 }
 
+type GJSONPath struct {
+	Path  string
+	Alias string
+}
+
 type Topic struct {
-	Path     string `json:"topic"`
-	Interval time.Duration
-	Messages []Message
-	framer   *framer
+	Path       string      `json:"topic"`
+	GJSONPaths []GJSONPath `json:"gjsonpaths"`
+	Interval   time.Duration
+	Messages   []Message
+	framer     *framer
 }
 
 func (t *Topic) Key() string {
@@ -28,7 +34,8 @@ func (t *Topic) ToDataFrame() (*data.Frame, error) {
 	if t.framer == nil {
 		t.framer = newFramer()
 	}
-	return t.framer.toFrame(t.Messages)
+
+	return t.framer.toFrame(t.Messages, t.GJSONPaths)
 }
 
 type TopicMap struct {
@@ -43,6 +50,21 @@ func (tm *TopicMap) Load(path string) (*Topic, bool) {
 
 	topic, ok := t.(*Topic)
 	return topic, ok
+}
+
+func (tm *TopicMap) AddGJSONPaths(path string, paths []GJSONPath) {
+	t, ok := tm.Map.Load(path)
+	if !ok {
+		return
+	}
+
+	topic, ok := t.(*Topic)
+	if !ok {
+		return
+	}
+
+	topic.GJSONPaths = paths
+	tm.Store(topic)
 }
 
 func (tm *TopicMap) AddMessage(path string, message Message) {

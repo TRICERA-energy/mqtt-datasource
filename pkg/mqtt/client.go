@@ -17,6 +17,7 @@ type Client interface {
 	Subscribe(string) *Topic
 	Unsubscribe(string)
 	Dispose()
+	AddGJSONPaths(string, []GJSONPath)
 }
 
 type Options struct {
@@ -81,6 +82,10 @@ func (c *client) HandleMessage(_ paho.Client, msg paho.Message) {
 
 func (c *client) GetTopic(reqPath string) (*Topic, bool) {
 	return c.topics.Load(reqPath)
+}
+
+func (c *client) AddGJSONPaths(reqPath string, paths []GJSONPath) {
+	c.topics.AddGJSONPaths(reqPath, paths)
 }
 
 func (c *client) Subscribe(reqPath string) *Topic {

@@ -33,4 +33,22 @@ describe('handlerFactory', () => {
       }
     `);
   });
+
+  it('Can handle arrays', () => {
+    const cb = jest.fn();
+    const handler = handlerFactory({ a: { b: [{ path: 'c', alias: 'd' }] } }, cb);
+    handler('a.b[0].path')(changeEvent);
+    expect(cb.mock.calls[0][0]).toMatchInlineSnapshot(`
+      Object {
+        "a": Object {
+          "b": Array [
+            Object {
+              "alias": "d",
+              "path": "test",
+            },
+          ],
+        },
+      }
+    `);
+  });
 });
