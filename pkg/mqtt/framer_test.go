@@ -76,7 +76,7 @@ func runTest(t *testing.T, name string, values ...any) {
 	for i, v := range values {
 		messages = append(messages, Message{Timestamp: timestamp.Add(time.Duration(i) * time.Minute), Value: toJSON(v)})
 	}
-	frame, err := f.toFrame(messages)
+	frame, err := f.toFrame(messages, []GJSONPath{})
 	require.NoError(t, err)
 	require.NotNil(t, frame)
 	experimental.CheckGoldenJSONFrame(t, "testdata", name, frame, update)
