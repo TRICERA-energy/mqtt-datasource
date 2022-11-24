@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
@@ -23,12 +22,7 @@ func (df *framer) next() error {
 	switch df.iterator.WhatIsNext() {
 	case jsoniter.StringValue:
 		v := df.iterator.ReadString()
-		time, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			df.addValue(data.FieldTypeNullableString, &v)
-		} else {
-			df.addValue(data.FieldTypeNullableTime, &time)
-		}
+		df.addValue(data.FieldTypeNullableString, &v)
 	case jsoniter.NumberValue:
 		v := df.iterator.ReadFloat64()
 		df.addValue(data.FieldTypeNullableFloat64, &v)
@@ -109,6 +103,9 @@ func (df *framer) toFrame(messages []Message, paths []GJSONPath) (*data.Frame, e
 		value := message.Value
 
 		if len(paths) > 0 {
+			// HACKY: Somehow the gjson library returns with a empty
+			// modifier the key as @alias:arg, makes it possible to
+			// specify alias for keys by removing @alias:
 			gjson.AddModifier("alias", func(json, arg string) string {
 				return json
 			})
@@ -123,7 +120,7 @@ func (df *framer) toFrame(messages []Message, paths []GJSONPath) (*data.Frame, e
 				}
 			}
 
-			combinedFilters := fmt.Sprintf(`{%s}`, strings.Join(filters, ","))
+			combinedFilters := fmt.Sprintf(`{%s}.@ugly`, strings.Join(filters, ","))
 
 			raw := gjson.GetBytes(value, combinedFilters).Raw
 			raw = strings.ReplaceAll(raw, "@alias:", "")
