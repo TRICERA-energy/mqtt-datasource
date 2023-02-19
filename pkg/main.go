@@ -109,9 +109,8 @@ func (p *plugin) RunStream(ctx context.Context, req *backend.RunStreamRequest, s
 	log.DefaultLogger.Info(fmt.Sprintf("subscribing to topic: %v", req.Path))
 	if t := p.mqtt.Subscribe(req.Path, 0, func(_ paho.Client, msg paho.Message) {
 		f := p.frame(req.Path,
-			data.NewField("topic", nil, msg.Topic()),
 			data.NewField("time", nil, []time.Time{time.Now()}),
-			data.NewField("value", nil, []string{string(msg.Payload())}))
+			data.NewField(msg.Topic(), nil, []string{string(msg.Payload())}))
 		p.cache.Store(req.Path, f)
 		if err := sender.SendFrame(f, data.IncludeAll); err != nil {
 			log.DefaultLogger.Error(fmt.Sprintf("unable to send message: %v", err))
