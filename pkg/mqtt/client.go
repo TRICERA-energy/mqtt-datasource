@@ -162,6 +162,7 @@ func (c *client) Publish(topic string, payload map[string]any, responseTopic str
 
 		defer c.client.Unsubscribe(responseTopic)
 	} else {
+		response = []byte(`{"success": "true", "message": "no response topic provided"}`)
 		done <- struct{}{}
 	}
 
