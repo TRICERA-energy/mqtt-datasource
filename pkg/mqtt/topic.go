@@ -25,7 +25,6 @@ type Topic struct {
 	Interval     time.Duration
 	Messages     []Message
 	framer       *framer
-	retained     bool
 }
 
 // Key returns the key for the topic.
@@ -43,12 +42,10 @@ func (t *Topic) ToDataFrame(logger log.Logger) (*data.Frame, error) {
 	return t.framer.toFrame(t.Messages, logger)
 }
 
-func (t *Topic) CleanMessages() {
-	if t.retained {
-		t.Messages = t.Messages[len(t.Messages)-1:]
-		return
-	}
-	t.Messages = []Message{}
+// KeepLastMessage keeps only the last message in the topic's message list.
+// This is useful for retained topics.
+func (t *Topic) KeepLastMessage() {
+	t.Messages = t.Messages[len(t.Messages)-1:]
 }
 
 // TopicMap is a thread-safe map of topics
@@ -68,7 +65,7 @@ func (tm *TopicMap) Load(key string) (*Topic, bool) {
 }
 
 // AddMessage adds a message to the topic for the given path.
-func (tm *TopicMap) AddMessage(path string, message Message, retained bool) {
+func (tm *TopicMap) AddMessage(path string, message Message) {
 	tm.Range(func(key, t any) bool {
 		topic, ok := t.(*Topic)
 		if !ok {
@@ -78,7 +75,6 @@ func (tm *TopicMap) AddMessage(path string, message Message, retained bool) {
 			topic.Messages = append(topic.Messages, message)
 			tm.Store(topic)
 		}
-		topic.retained = topic.retained || retained // if any message is retained, mark the topic as retained
 		return true
 	})
 }

@@ -12,10 +12,6 @@ import (
 )
 
 func (ds *MQTTDatasource) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
-	// if there is no refID, the refID will be empty string
-	// no need to check if exists because the default refID will be anyway an empty string
-	refID, _ := ds.RefIds.Get(req.Path)
-
 	// Extract the topic key from the channel path
 	// Channel path format: "ds/{uid}/{topicKey}" where topicKey includes streaming key
 	// We need to remove the channelPrefix ("ds/{uid}") to get the topic key
@@ -23,9 +19,13 @@ func (ds *MQTTDatasource) RunStream(ctx context.Context, req *backend.RunStreamR
 	logger := log.DefaultLogger.FromContext(ctx)
 
 	chunks := strings.Split(topicKey, "/")
-	if len(chunks) < 2 {
+
+	// Expected format: {interval}/{encodedTopic}/{dsUid}/{hash}/{orgId}/{refId}
+	if len(chunks) < 6 {
 		return backend.DownstreamErrorf("invalid topic key: %s", topicKey)
 	}
+
+	refID := chunks[len(chunks)-1]
 
 	interval, err := time.ParseDuration(chunks[0])
 	if err != nil {
@@ -61,9 +61,8 @@ func (ds *MQTTDatasource) RunStream(ctx context.Context, req *backend.RunStreamR
 				logger.Error("failed to convert topic to data frame", "path", req.Path, "error", backend.DownstreamError(err))
 				break
 			}
-			topic.CleanMessages()
-			frame.RefID = refID
-
+			frame.Name = refID
+			topic.KeepLastMessage()
 			if err := sender.SendFrame(frame, data.IncludeAll); err != nil {
 				logger.Error("failed to send data frame", "path", req.Path, "error", backend.DownstreamError(err))
 			}
@@ -74,15 +73,15 @@ func (ds *MQTTDatasource) RunStream(ctx context.Context, req *backend.RunStreamR
 
 func (ds *MQTTDatasource) SubscribeStream(ctx context.Context, req *backend.SubscribeStreamRequest) (*backend.SubscribeStreamResponse, error) {
 	// Extract orgId from the streaming key embedded in the channel path
-	// Channel: {interval}/{topic}/{datasourceUid}/{hash}/{orgId}
+	// Channel: {interval}/{topic}/{datasourceUid}/{hash}/{orgId}/{refId}
 	pathParts := strings.Split(req.Path, "/")
-	if len(pathParts) < 5 {
+	if len(pathParts) < 6 {
 		return &backend.SubscribeStreamResponse{
 			Status: backend.SubscribeStreamStatusNotFound,
 		}, backend.DownstreamErrorf("invalid channel path format")
 	}
 
-	orgId, err := strconv.ParseInt(pathParts[len(pathParts)-1], 10, 64)
+	orgId, err := strconv.ParseInt(pathParts[len(pathParts)-2], 10, 64)
 	if err != nil {
 		return &backend.SubscribeStreamResponse{
 			Status: backend.SubscribeStreamStatusNotFound,
